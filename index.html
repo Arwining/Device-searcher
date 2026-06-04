@@ -1,0 +1,157 @@
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Enhanced Devices & Bluetooth Scanner with Options</title>
+<style>
+  body { font-family: Arial, sans-serif; }
+  button { padding: 10px; margin: 10px 0; }
+  label { display: block; margin-top: 10px; }
+  pre { background: #f0f0f0; padding: 10px; max-height: 400px; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>Connected External Devices & Bluetooth Devices - More Data</h1>
+<a href="https://arwining.github.io/Learning-tool-hub/">Learning-tool-hub</a>
+<label>
+<p>This website was made and should only be used for getting information about your own devices and there status</p>
+  <input type="checkbox" id="showAllDevices" />
+  Show all devices (including unsupported or non-paired)
+</label>
+
+<button id="getDevicesBtn">Get HID Devices</button>
+<button id="scanBluetoothBtn">Scan Bluetooth Devices</button>
+<pre id="devicesInfo"></pre>
+
+<script>
+  const output = document.getElementById('devicesInfo');
+
+  document.getElementById('getDevicesBtn').addEventListener('click', async () => {
+    output.textContent = 'Requesting HID devices...';
+
+    if ('hid' in navigator) {
+      try {
+        const devices = await navigator.hid.requestDevice({ filters: [] });
+        if (devices.length === 0) {
+          output.textContent = 'No HID devices connected or access denied.';
+        } else {
+          let infoText = '';
+          for (let device of devices) {
+            infoText += `HID Device:\n`;
+            infoText += `  Product Name: ${device.productName || 'N/A'}\n`;
+            infoText += `  Vendor ID: ${device.vendorId}\n`;
+            infoText += `  Product ID: ${device.productId}\n`;
+            infoText += `  Collections: ${device.collections ? device.collections.length : 'N/A'}\n`;
+            infoText += `  Serial Number: ${device.serialNumber || 'N/A'}\n`;
+            infoText += `  Device Handle: ${device.handle ? 'Available' : 'N/A'}\n`;
+
+            // List collections (usage pages and usages)
+            if (device.collections) {
+              infoText += `  Collections:\n`;
+              device.collections.forEach((col, idx) => {
+                infoText += `    Collection ${idx + 1}:\n`;
+                infoText += `      Usage Page: ${col.usagePage}\n`;
+                infoText += `      Usage: ${col.usage}\n`;
+                infoText += `      Usage Name: ${col.usageName || 'N/A'}\n`;
+              });
+            }
+
+            // List report descriptors if available
+            if (device.reportDescriptors) {
+              infoText += `  Report Descriptors:\n`;
+              device.reportDescriptors.forEach((desc, idx) => {
+                infoText += `    Descriptor ${idx + 1}:\n`;
+                infoText += `      Report ID: ${desc.reportId}\n`;
+                infoText += `      Report Type: ${desc.reportType}\n`;
+              });
+            }
+
+            infoText += '\n';
+          }
+          output.textContent = infoText;
+        }
+      } catch (err) {
+        output.textContent = 'Error: ' + err;
+      }
+    } else {
+      output.textContent = 'WebHID API not supported in this browser.';
+    }
+  });
+
+  document.getElementById('scanBluetoothBtn').addEventListener('click', async () => {
+    output.textContent = '';
+
+    const showAll = document.getElementById('showAllDevices').checked;
+
+    if (navigator.bluetooth) {
+      try {
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['battery_service', 'device_information']
+        });
+        let info = `Bluetooth Device:\n`;
+        info += `Name: ${device.name || 'Unknown'}\n`;
+        info += `ID: ${device.id}\n`;
+        info += `GATT Connected: ${device.gatt?.connected ? 'Yes' : 'No'}\n`;
+        info += `UUIDs: ${device.uuids ? device.uuids.join(', ') : 'N/A'}\n`;
+        info += `Device Class: ${device.deviceClass || 'N/A'}\n`;
+        info += `Device Type: ${device.deviceType || 'N/A'}\n`;
+
+        if (showAll && device.gatt) {
+          try {
+            const server = await device.gatt.connect();
+            info += `\nConnected to GATT server.\n`;
+
+            // List all primary services
+            const services = await server.getPrimaryServices();
+            info += `Available Services:\n`;
+            for (const service of services) {
+              info += `- Service UUID: ${service.uuid}\n`;
+              const characteristics = await service.getCharacteristics();
+              for (const char of characteristics) {
+                info += `  - Characteristic UUID: ${char.uuid}\n`;
+                // Attempt to read characteristic value
+                try {
+                  const value = await char.readValue();
+                  const valueArray = Array.from(new Uint8Array(value.buffer));
+                  info += `    Value: [${valueArray.join(', ')}]\n`;
+                } catch (readErr) {
+                  info += `    Unable to read value: ${readErr}\n`;
+                }
+              }
+            }
+
+            // Fetch Device Information Service details if available
+            const deviceInfoService = await server.getPrimaryService('device_information').catch(() => null);
+            if (deviceInfoService) {
+              info += `\nDevice Information:\n`;
+              const characteristics = await deviceInfoService.getCharacteristics();
+              for (const char of characteristics) {
+                try {
+                  const value = await char.readValue();
+                  const decoder = new TextDecoder('utf-8');
+                  const decoded = decoder.decode(value.buffer);
+                  info += `- ${char.uuid}: ${decoded}\n`;
+                } catch {
+                  info += `- ${char.uuid}: [Unable to read]\n`;
+                }
+              }
+            }
+
+            await server.disconnect();
+          } catch (err) {
+            info += `\nFailed to connect or fetch services: ${err}\n`;
+          }
+        }
+
+        output.textContent = info;
+      } catch (err) {
+        output.textContent = 'Error or user cancelled: ' + err;
+      }
+    } else {
+      output.textContent = 'Web Bluetooth API not supported in this browser.';
+    }
+  });
+</script>
+</body>
+</html>
